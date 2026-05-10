@@ -1983,41 +1983,39 @@ function todayKey() {
 async function checkRollover() {
   if (!window.kanban.user) return;
   const today = todayKey();
-  const last = localStorage.getItem(LAST_DATE_KEY);
 
-  // Sempre verifica tarefas concluídas fora da semana atual (para esconder)
-  // mesmo no mesmo dia, e move tarefas ao virar o dia.
   const weekStart = getWeekStartKey();
   const tasksToUpdate = [];
   let movedCount = 0;
   let archivedCount = 0;
 
-  if (last && last !== today) {
-    // Virou o dia → fazer rollover de tarefas inacabadas
-    window.kanban.tasks.forEach(t => {
-      // Tarefas em "fazer" → continuam em "fazer", contador rolledOver++
-      if (t.col === 'hoje') {
-        const updated = { ...t, rolledOver: (t.rolledOver || 0) + 1 };
+  // Para cada tarefa em "Fazer" ou "Fazendo", verifica se já foi rolada para HOJE.
+  // Se NÃO foi (lastRolloverDate < today), incrementa rolledOver e marca como rolada hoje.
+  // Isso impede incrementos múltiplos por dia e por dispositivo, pois a marca está na própria tarefa (na nuvem).
+  window.kanban.tasks.forEach(t => {
+    if (t.col === 'hoje' || t.col === 'fazendo') {
+      const lastRoll = t.lastRolloverDate || null;
+      // Considera a data de criação como ponto inicial — só rolla se a tarefa é de antes de hoje
+      const createdDay = t.createdAt ? new Date(t.createdAt).toISOString().slice(0, 10) : today;
+      // Só incrementa se: nunca rolou OU rolou em data anterior a hoje, E a tarefa não foi criada hoje
+      if (createdDay < today && (!lastRoll || lastRoll < today)) {
+        const updated = {
+          ...t,
+          rolledOver: (t.rolledOver || 0) + 1,
+          lastRolloverDate: today
+        };
         tasksToUpdate.push(updated);
         movedCount++;
       }
-      // Tarefas em "fazendo" → continuam em "fazendo", contador rolledOver++
-      else if (t.col === 'fazendo') {
-        const updated = { ...t, rolledOver: (t.rolledOver || 0) + 1 };
-        tasksToUpdate.push(updated);
-        movedCount++;
-      }
-    });
-  }
+    }
+  });
 
-  // SEMPRE verifica concluídas: se foram concluídas em semana anterior, marca como arquivada
-  // (a flag "archived" esconde da tela mas mantém no histórico)
+  // Verifica concluídas fora da semana corrente para arquivar
   window.kanban.tasks.forEach(t => {
     if (t.col === 'concluido' && !t.archived && t.completedDate && t.completedDate < weekStart) {
       const updated = { ...t, archived: true };
-      // evita duplicar update se já estava na lista
       const idx = tasksToUpdate.findIndex(u => u.id === t.id);
-      if (idx >= 0) tasksToUpdate[idx] = updated;
+      if (idx >= 0) tasksToUpdate[idx] = { ...tasksToUpdate[idx], archived: true };
       else tasksToUpdate.push(updated);
       archivedCount++;
     }
